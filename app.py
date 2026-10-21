@@ -5,7 +5,7 @@ import streamlit as st
 
 st.set_page_config(page_title="حذف صفحات من PDF", layout="wide")
 
-st.title("📄 تطبيق حذف واختيار صفحات من ملف PDF")
+st.title("حذف اوراق من pdf")
 
 # رفع ملف الـ PDF
 uploaded_file = st.file_uploader("قم برفع ملف الـ PDF هنا", type=["pdf"])
