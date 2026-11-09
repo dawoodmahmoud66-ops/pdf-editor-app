@@ -3,15 +3,14 @@ from pdf2image import convert_from_bytes
 from pypdf import PdfReader, PdfWriter
 import streamlit as st
 
-st.set_page_config(page_title="حذف صفحات من ملفات PDF متعددة", layout="wide")
+st.set_page_config(page_title="حذف صفحات من PDF", layout="wide")
 
 st.title("✂️ معالجة وحذف أوراق من ملفات PDF (ملف تلو الآخر)")
 
-# 1. إعداد قائمة المتغيرات في الـ Session State
+# إعداد المؤشر
 if "current_file_idx" not in st.session_state:
     st.session_state.current_file_idx = 0
 
-# 2. رفع عدة ملفات
 uploaded_files = st.file_uploader(
     "قم برفع ملفات الـ PDF هنا (يمكنك اختيار أكثر من ملف):", 
     type=["pdf"], 
@@ -30,32 +29,32 @@ if uploaded_files:
     st.info(f"📂 الملف الحالي: **{current_file.name}** ({current_idx + 1} من أصل {total_uploaded})")
     st.progress((current_idx + 1) / total_uploaded)
 
-    pdf_bytes = current_file.read()
-    current_file.seek(0)
+    # قراءة بيانيات الملف
+    pdf_bytes = current_file.getvalue()
     reader = PdfReader(io.BytesIO(pdf_bytes))
     total_pages = len(reader.pages)
 
     st.write(f"📄 إجمالي عدد صفحات هذا الملف: **{total_pages}** صفحة")
     st.subheader("🖼️ اختر الصفحات التي تريد **حذفها** من هذا الملف:")
 
-    with st.spinner("جاري تحميل معاينة الصفحات..."):
-        images = convert_from_bytes(pdf_bytes, dpi=150)
+    try:
+        with st.spinner("جاري تحميل معاينة الصفحات..."):
+            images = convert_from_bytes(pdf_bytes, dpi=120)
 
-    pages_to_delete = []
-    cols_per_row = 4
+        pages_to_delete = []
+        cols_per_row = 4
+        cols = st.columns(cols_per_row)
 
-    cols = st.columns(cols_per_row)
-    for index, img in enumerate(images):
-        col = cols[index % cols_per_row]
-        with col:
-            # تم التحديث هنا إلى width="stretch" ليتوافق مع الإصدار الأخير من Streamlit
-            st.image(img, caption=f"صفحة {index + 1}", width="stretch")
-            if st.checkbox(f"حذف صفحة {index + 1}", key=f"{current_file.name}_p_{index}"):
-                pages_to_delete.append(index)
+        for index, img in enumerate(images):
+            col = cols[index % cols_per_row]
+            with col:
+                st.image(img, caption=f"صفحة {index + 1}", use_column_width=True)
+                if st.checkbox(f"حذف صفحة {index + 1}", key=f"{current_file.name}_p_{index}_{st.session_state.current_file_idx}"):
+                    pages_to_delete.append(index)
 
-    st.markdown("---")
+        st.markdown("---")
 
-    if st.button("✂️ تنفيذ الحذف وتجهيز التحميل"):
+        # معالجة الملف والتجهيز للتحميل
         writer = PdfWriter()
         kept_pages = 0
         for i in range(total_pages):
@@ -68,31 +67,28 @@ if uploaded_files:
         else:
             output_pdf = io.BytesIO()
             writer.write(output_pdf)
-            output_pdf.seek(0)
+            output_bytes = output_pdf.getvalue()
 
-            st.session_state.processed_data = output_pdf.getvalue()
-            st.session_state.ready_to_download = True
-            st.success(f"تم حذف {len(pages_to_delete)} صفحة بنجاح! المتبقي: {kept_pages} صفحة.")
+            def go_next():
+                st.session_state.current_file_idx += 1
 
-    if st.session_state.get("ready_to_download", False):
-        def next_file():
-            st.session_state.current_file_idx += 1
-            st.session_state.ready_to_download = False
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                st.download_button(
+                    label="📥 تحميل الملف الحالي والانتقال للتالي ➡️",
+                    data=output_bytes,
+                    file_name=f"modified_{current_file.name}",
+                    mime="application/pdf",
+                    on_click=go_next
+                )
+            with col_btn2:
+                if st.button("⏭️ تخطي هذا الملف"):
+                    st.session_state.current_file_idx += 1
+                    st.rerun()
 
-        st.download_button(
-            label="📥 تحميل ملف PDF المعدل والانتقال للملف التالي ➡️",
-            data=st.session_state.processed_data,
-            file_name=f"modified_{current_file.name}",
-            mime="application/pdf",
-            on_click=next_file
-        )
-
-    if st.button("⏭️ تخطي هذا الملف والانتقال للتالي"):
-        st.session_state.current_file_idx += 1
-        st.session_state.ready_to_download = False
-        st.rerun()
+    except Exception as e:
+        st.error(f"حدث خطأ أثناء معالجة الملف: {e}")
 
 else:
     st.session_state.current_file_idx = 0
-    st.session_state.ready_to_download = False
     st.write("👈 يرجى رفع ملفات PDF للبدء.")
