@@ -21,7 +21,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ معالجة وحذف أوراق PDF (مستقر وسريع)")
+st.title("⚡ معالجة وحذف أوراق PDF (فائق السرعة)")
 
 # رفع الملفات
 uploaded_files = st.file_uploader(
@@ -31,7 +31,6 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    # تهيئة متغيرات الجلسة (المؤشر وقائمة تقرير الإكسيل)
     if "current_file_idx" not in st.session_state:
         st.session_state.current_file_idx = 0
     if "report_data" not in st.session_state:
@@ -40,15 +39,13 @@ if uploaded_files:
     total_files = len(uploaded_files)
     current_idx = st.session_state.current_file_idx
 
-    # في حالة الانتهاء من كافة الملفات
+    # حالة الانتهاء من كافة الملفات
     if current_idx >= total_files:
         st.balloons()
         st.success(f"🎉 تم الانتهاء من معالجة جميع الملفات المرفوعة بنجاح! ({total_files} من أصل {total_files})")
         
-        # إنشاء ملف Excel للتقرير النهائي
         if st.session_state.report_data:
             df_report = pd.DataFrame(st.session_state.report_data)
-            
             excel_buffer = io.BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                 df_report.to_excel(writer, index=False, sheet_name='تقرير الملفات')
@@ -86,9 +83,11 @@ if uploaded_files:
             cols_per_row = 4
             cols = st.columns(cols_per_row)
 
+            # معالجة ومعاينة الصفحات بدقة خفيفة للغاية وخاطفة
             for index in range(total_pages):
                 page = doc.load_page(index)
-                pix = page.get_pixmap(dpi=72)
+                # dpi=50 يمنح سرعة عرض فورية دون التأثير على جودة الملف النهائي
+                pix = page.get_pixmap(dpi=50)
                 img_bytes = pix.tobytes("png")
 
                 col = cols[index % cols_per_row]
@@ -100,6 +99,7 @@ if uploaded_files:
             doc.close()
             st.markdown("---")
 
+            # إعداد ملف الـ PDF الناتج مسبقاً
             reader = PdfReader(io.BytesIO(pdf_bytes))
             writer = PdfWriter()
             kept_pages = 0
@@ -116,8 +116,8 @@ if uploaded_files:
                 writer.write(output_pdf)
                 output_bytes = output_pdf.getvalue()
 
-                # تسجيل بيانات التقرير والانتقال للملف التالي
-                def go_next():
+                # دالة التنسيق المباشر للسلسلة
+                def next_file_and_record():
                     st.session_state.report_data.append({
                         "اسم الملف": current_file.name,
                         "عدد الصفحات بعد الحذف": kept_pages,
@@ -126,8 +126,7 @@ if uploaded_files:
                     })
                     st.session_state.current_file_idx += 1
 
-                # دالة التخطي
-                def skip_file():
+                def skip_current_file():
                     st.session_state.current_file_idx += 1
 
                 col1, col2 = st.columns(2)
@@ -137,10 +136,10 @@ if uploaded_files:
                         data=output_bytes,
                         file_name=current_file.name,
                         mime="application/pdf",
-                        on_click=go_next
+                        on_click=next_file_and_record
                     )
                 with col2:
-                    if st.button("⏭️ تخطي هذا الملف", on_click=skip_file):
+                    if st.button("⏭️ تخطي هذا الملف", on_click=skip_current_file):
                         st.rerun()
 
         except Exception as e:
