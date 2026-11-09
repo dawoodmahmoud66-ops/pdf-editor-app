@@ -1,3 +1,5 @@
 streamlit
 pypdf
 PyMuPDF
+pandas
+openpyxl
