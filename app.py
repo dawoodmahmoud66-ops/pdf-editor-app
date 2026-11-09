@@ -1,18 +1,13 @@
 import io
 import os
+import gc
 from pdf2image import convert_from_bytes
 from pypdf import PdfReader, PdfWriter
 import streamlit as st
 
-st.set_page_config(page_title="حذف صفحات من PDF - النسخة السريعة", layout="wide")
+st.set_page_config(page_title="حذف صفحات من PDF", layout="wide")
 
-st.title("⚡ معالجة وحذف أوراق PDF (النسخة السريعة جداً)")
-
-# 1. دالة تسريع التحويل وتخزين الصور في الذاكرة Caching
-@st.cache_data(show_spinner=False, max_entries=10)
-def load_pdf_images(pdf_bytes):
-    # استخدام dpi=80 يوفر سرعة عالية مع الحفاظ على وضوح المعاينة
-    return convert_from_bytes(pdf_bytes, dpi=80)
+st.title("⚡ معالجة وحذف أوراق PDF (بدون استهلاك ذاكرة السيرفر)")
 
 # إعداد مؤشر الملفات
 if "current_file_idx" not in st.session_state:
@@ -40,6 +35,7 @@ if uploaded_files:
         st.info(f"📂 الملف الحالي ({current_idx + 1} من أصل {total_files}): **{current_file.name}**")
         st.progress((current_idx + 1) / total_files)
 
+        # قراءة بيانات الملف الحالي فقط
         pdf_bytes = current_file.getvalue()
         reader = PdfReader(io.BytesIO(pdf_bytes))
         total_pages = len(reader.pages)
@@ -48,9 +44,9 @@ if uploaded_files:
         st.subheader("🖼️ اختر الصفحات المراد **حذفها**:")
 
         try:
-            # استدعاء الدالة المسرّعة
-            with st.spinner("⚡ جاري إعداد المعاينة السريعة..."):
-                images = load_pdf_images(pdf_bytes)
+            # استخدام dpi=72 وحجم مصغر وتقليل أبعاد الصورة لتقليل استهلاك الـ RAM لأدنى حد
+            with st.spinner("جاري إعداد المعاينة..."):
+                images = convert_from_bytes(pdf_bytes, dpi=72, size=(400, None))
 
             pages_to_delete = []
             cols_per_row = 4
@@ -80,8 +76,10 @@ if uploaded_files:
                 writer.write(output_pdf)
                 output_bytes = output_pdf.getvalue()
 
+                # دالة الانتقال + تفريغ الذاكرة فوراً من الصور القديمة (Garbage Collector)
                 def go_next():
                     st.session_state.current_file_idx += 1
+                    gc.collect()
 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -95,7 +93,12 @@ if uploaded_files:
                 with col2:
                     if st.button("⏭️ تخطي هذا الملف"):
                         st.session_state.current_file_idx += 1
+                        gc.collect()
                         st.rerun()
+
+            # مسح الصور من ذاكرة الجهاز مؤقتاً
+            del images
+            gc.collect()
 
         except Exception as e:
             st.error(f"حدث خطأ أثناء معالجة الملف: {e}")
