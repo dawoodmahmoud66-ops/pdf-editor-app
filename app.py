@@ -5,7 +5,22 @@ import streamlit as st
 
 st.set_page_config(page_title="حذف صفحات من PDF", layout="wide")
 
-st.title("⚡ معالجة وحذف أوراق PDF (بدون استهلاك الذاكرة)")
+# 🎨 تطبيق الخلفية السوداء والنصوص البيضاء
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #0E1117;
+        color: #FFFFFF;
+    }
+    .stButton>button {
+        background-color: #262730;
+        color: #FFFFFF;
+        border-radius: 8px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("⚡ معالجة وحذف أوراق PDF (مستقر وسريع)")
 
 # رفع الملفات
 uploaded_files = st.file_uploader(
@@ -15,14 +30,12 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    # إدارة المؤشر داخل الجلسة
     if "current_file_idx" not in st.session_state:
         st.session_state.current_file_idx = 0
 
     total_files = len(uploaded_files)
     current_idx = st.session_state.current_file_idx
 
-    # في حالة الانتهاء من كافة الملفات
     if current_idx >= total_files:
         st.balloons()
         st.success(f"🎉 تم الانتهاء من معالجة جميع الملفات المرفوعة بنجاح! ({total_files} من أصل {total_files})")
@@ -62,7 +75,6 @@ if uploaded_files:
             doc.close()
             st.markdown("---")
 
-            # إنشاء الـ PDF الجديد
             reader = PdfReader(io.BytesIO(pdf_bytes))
             writer = PdfWriter()
             kept_pages = 0
@@ -84,7 +96,6 @@ if uploaded_files:
 
                 col1, col2 = st.columns(2)
                 with col1:
-                    # التعديل الأول: التحميل بنفس اسم الملف الأصلي تماماً دون "modified_"
                     st.download_button(
                         label="📥 تحميل الملف والتالي ➡️",
                         data=output_bytes,
