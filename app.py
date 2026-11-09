@@ -2,6 +2,7 @@ import io
 import fitz  # PyMuPDF
 from pypdf import PdfReader, PdfWriter
 import streamlit as st
+import pandas as pd
 
 st.set_page_config(page_title="حذف صفحات من PDF", layout="wide")
 
@@ -30,18 +31,42 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
+    # تهيئة متغيرات الجلسة (المؤشر وقائمة تقرير الإكسيل)
     if "current_file_idx" not in st.session_state:
         st.session_state.current_file_idx = 0
+    if "report_data" not in st.session_state:
+        st.session_state.report_data = []
 
     total_files = len(uploaded_files)
     current_idx = st.session_state.current_file_idx
 
+    # في حالة الانتهاء من كافة الملفات
     if current_idx >= total_files:
         st.balloons()
         st.success(f"🎉 تم الانتهاء من معالجة جميع الملفات المرفوعة بنجاح! ({total_files} من أصل {total_files})")
-        if st.button("🔄 بدء معالجة القائمة من الجديد"):
+        
+        # إنشاء ملف Excel للتقرير النهائي
+        if st.session_state.report_data:
+            df_report = pd.DataFrame(st.session_state.report_data)
+            
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                df_report.to_excel(writer, index=False, sheet_name='تقرير الملفات')
+            excel_data = excel_buffer.getvalue()
+
+            st.download_button(
+                label="📊 تحميل تقرير Excel لجميع الملفات المعدلة",
+                data=excel_data,
+                file_name="pdf_processing_report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+        st.markdown("---")
+        if st.button("🔄 بدء معالجة قائمة جديدة"):
             st.session_state.current_file_idx = 0
+            st.session_state.report_data = []
             st.rerun()
+
     else:
         current_file = uploaded_files[current_idx]
 
@@ -54,7 +79,7 @@ if uploaded_files:
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
             total_pages = len(doc)
 
-            st.write(f"📄 إجمالي الصفحات: **{total_pages}** صفحة")
+            st.write(f"📄 إجمالي الصفحات الأصلي: **{total_pages}** صفحة")
             st.subheader("🖼️ اختر الصفحات المراد **حذفها**:")
 
             pages_to_delete = []
@@ -91,7 +116,18 @@ if uploaded_files:
                 writer.write(output_pdf)
                 output_bytes = output_pdf.getvalue()
 
+                # تسجيل بيانات التقرير والانتقال للملف التالي
                 def go_next():
+                    st.session_state.report_data.append({
+                        "اسم الملف": current_file.name,
+                        "عدد الصفحات بعد الحذف": kept_pages,
+                        "عدد الصفحات المحذوفة": len(pages_to_delete),
+                        "عدد الصفحات الأصلي": total_pages
+                    })
+                    st.session_state.current_file_idx += 1
+
+                # دالة التخطي
+                def skip_file():
                     st.session_state.current_file_idx += 1
 
                 col1, col2 = st.columns(2)
@@ -104,8 +140,7 @@ if uploaded_files:
                         on_click=go_next
                     )
                 with col2:
-                    if st.button("⏭️ تخطي هذا الملف"):
-                        st.session_state.current_file_idx += 1
+                    if st.button("⏭️ تخطي هذا الملف", on_click=skip_file):
                         st.rerun()
 
         except Exception as e:
@@ -113,4 +148,5 @@ if uploaded_files:
 
 else:
     st.session_state.current_file_idx = 0
+    st.session_state.report_data = []
     st.write("👈 قم برفع الملفات للبدء.")
