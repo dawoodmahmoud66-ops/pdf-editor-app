@@ -3,8 +3,9 @@ import fitz  # PyMuPDF
 from pypdf import PdfReader, PdfWriter
 import streamlit as st
 import pandas as pd
+import gc
 
-st.set_page_config(page_title="حذف صفحات من PDF", layout="wide")
+st.set_page_config(page_title="حذف صفحات من PDF (موفر للذاكرة)", layout="wide")
 
 # 🎨 تطبيق الخلفية السوداء والنصوص البيضاء
 st.markdown("""
@@ -21,7 +22,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ معالجة وحذف أوراق PDF (فائق السرعة)")
+st.title("⚡ معالجة وحذف أوراق PDF (محسّن لتفادي امتلاء الذاكرة)")
 
 # رفع الملفات
 uploaded_files = st.file_uploader(
@@ -62,6 +63,7 @@ if uploaded_files:
         if st.button("🔄 بدء معالجة قائمة جديدة"):
             st.session_state.current_file_idx = 0
             st.session_state.report_data = []
+            gc.collect()
             st.rerun()
 
     else:
@@ -83,12 +85,11 @@ if uploaded_files:
             cols_per_row = 4
             cols = st.columns(cols_per_row)
 
-            # معالجة ومعاينة الصفحات بدقة خفيفة للغاية وخاطفة
+            # معالجة وعرض الصفحات بدقة خفيفة جداً لمنع تراكم الذاكرة
             for index in range(total_pages):
                 page = doc.load_page(index)
-                # dpi=50 يمنح سرعة عرض فورية دون التأثير على جودة الملف النهائي
-                pix = page.get_pixmap(dpi=50)
-                img_bytes = pix.tobytes("png")
+                pix = page.get_pixmap(dpi=40)  # خفض الـ dpi لتوفير المساحة
+                img_bytes = pix.tobytes("jpeg") # تحويل لـ JPEG لأقل استهلاك مساحة ممكن
 
                 col = cols[index % cols_per_row]
                 with col:
@@ -97,9 +98,12 @@ if uploaded_files:
                         pages_to_delete.append(index)
 
             doc.close()
+            del doc
+            gc.collect()  # تنظيف الذاكرة الفوري
+
             st.markdown("---")
 
-            # إعداد ملف الـ PDF الناتج مسبقاً
+            # إعداد ملف الـ PDF الناتج
             reader = PdfReader(io.BytesIO(pdf_bytes))
             writer = PdfWriter()
             kept_pages = 0
@@ -116,7 +120,6 @@ if uploaded_files:
                 writer.write(output_pdf)
                 output_bytes = output_pdf.getvalue()
 
-                # دالة التنسيق المباشر للسلسلة
                 def next_file_and_record():
                     st.session_state.report_data.append({
                         "اسم الملف": current_file.name,
@@ -125,9 +128,11 @@ if uploaded_files:
                         "عدد الصفحات الأصلي": total_pages
                     })
                     st.session_state.current_file_idx += 1
+                    gc.collect() # تفريغ الذاكرة فور الانتقال للملف التالي
 
                 def skip_current_file():
                     st.session_state.current_file_idx += 1
+                    gc.collect()
 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -144,8 +149,10 @@ if uploaded_files:
 
         except Exception as e:
             st.error(f"حدث خطأ أثناء معالجة الملف: {e}")
+            gc.collect()
 
 else:
     st.session_state.current_file_idx = 0
     st.session_state.report_data = []
+    gc.collect()
     st.write("👈 قم برفع الملفات للبدء.")
