@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 import gc
 
-st.set_page_config(page_title="حذف صفحات من PDF (موفر للذاكرة)", layout="wide")
+st.set_page_config(page_title="حذف صفحات من PDF", layout="wide")
 
 # 🎨 تطبيق الخلفية السوداء والنصوص البيضاء
 st.markdown("""
@@ -22,7 +22,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ معالجة وحذف أوراق PDF (محسّن لتفادي امتلاء الذاكرة)")
+st.title("⚡ معالجة وحذف أوراق PDF (مع ضغط الجودة وتقليل الحجم)")
 
 # رفع الملفات
 uploaded_files = st.file_uploader(
@@ -32,18 +32,21 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    if "current_file_idx" not in st.session_state:
-        st.session_state.current_file_idx = 0
+    if "processed_file_names" not in st.session_state:
+        st.session_state.processed_file_names = set()
     if "report_data" not in st.session_state:
         st.session_state.report_data = []
 
-    total_files = len(uploaded_files)
-    current_idx = st.session_state.current_file_idx
+    # تصفية الملفات للحصول على المتبقي فقط
+    remaining_files = [f for f in uploaded_files if f.name not in st.session_state.processed_file_names]
+    
+    total_original = len(uploaded_files)
+    completed_count = len(st.session_state.processed_file_names)
 
     # حالة الانتهاء من كافة الملفات
-    if current_idx >= total_files:
+    if not remaining_files:
         st.balloons()
-        st.success(f"🎉 تم الانتهاء من معالجة جميع الملفات المرفوعة بنجاح! ({total_files} من أصل {total_files})")
+        st.success(f"🎉 تم الانتهاء من معالجة جميع الملفات بنجاح! ({completed_count} من أصل {total_original})")
         
         if st.session_state.report_data:
             df_report = pd.DataFrame(st.session_state.report_data)
@@ -61,16 +64,16 @@ if uploaded_files:
 
         st.markdown("---")
         if st.button("🔄 بدء معالجة قائمة جديدة"):
-            st.session_state.current_file_idx = 0
+            st.session_state.processed_file_names = set()
             st.session_state.report_data = []
             gc.collect()
             st.rerun()
 
     else:
-        current_file = uploaded_files[current_idx]
+        current_file = remaining_files[0]
 
-        st.info(f"📂 الملف الحالي ({current_idx + 1} من أصل {total_files}): **{current_file.name}**")
-        st.progress((current_idx + 1) / total_files)
+        st.info(f"📂 الملف الحالي ({completed_count + 1} من أصل {total_original}): **{current_file.name}**")
+        st.progress(completed_count / total_original)
 
         pdf_bytes = current_file.getvalue()
 
@@ -85,63 +88,71 @@ if uploaded_files:
             cols_per_row = 4
             cols = st.columns(cols_per_row)
 
-            # معالجة وعرض الصفحات بدقة خفيفة جداً لمنع تراكم الذاكرة
+            # 1. معاينة الصفحات بدقة خفيفة للواجهة
             for index in range(total_pages):
                 page = doc.load_page(index)
-                pix = page.get_pixmap(dpi=40)  # خفض الـ dpi لتوفير المساحة
-                img_bytes = pix.tobytes("jpeg") # تحويل لـ JPEG لأقل استهلاك مساحة ممكن
+                pix = page.get_pixmap(dpi=40)
+                img_bytes = pix.tobytes("jpeg")
 
                 col = cols[index % cols_per_row]
                 with col:
                     st.image(img_bytes, caption=f"صفحة {index + 1}")
-                    if st.checkbox(f"حذف {index + 1}", key=f"f_{current_idx}_p_{index}"):
+                    if st.checkbox(f"حذف {index + 1}", key=f"{current_file.name}_p_{index}"):
                         pages_to_delete.append(index)
-
-            doc.close()
-            del doc
-            gc.collect()  # تنظيف الذاكرة الفوري
 
             st.markdown("---")
 
-            # إعداد ملف الـ PDF الناتج
-            reader = PdfReader(io.BytesIO(pdf_bytes))
-            writer = PdfWriter()
-            kept_pages = 0
+            kept_pages_count = total_pages - len(pages_to_delete)
 
-            for i in range(total_pages):
-                if i not in pages_to_delete:
-                    writer.add_page(reader.pages[i])
-                    kept_pages += 1
-
-            if kept_pages == 0:
+            if kept_pages_count == 0:
                 st.error("⚠️ لقد قمت بتحديد جميع الصفحات للحذف!")
             else:
-                output_pdf = io.BytesIO()
-                writer.write(output_pdf)
-                output_bytes = output_pdf.getvalue()
+                # 2. إنشاء مستند جديد وضغط الصفحات المتبقية (تقليل الجودة والحجم)
+                new_doc = fitz.open()
+                
+                for index in range(total_pages):
+                    if index not in pages_to_delete:
+                        page = doc.load_page(index)
+                        # تحويل الصفحة لصورة بدقة مخصصة (dpi=120 لضمان خفض الحجم مع وضوح النصوص)
+                        pix = page.get_pixmap(dpi=120)
+                        img_data = pix.tobytes("jpeg", jpg_quality=65) # ضغط الجودة لـ 65%
+                        
+                        # إنشاء صفحة جديدة بنفس المقاسات وإعادة رسم الصورة المضغوطة عليها
+                        new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)
+                        new_page.insert_image(page.rect, stream=img_data)
 
-                def next_file_and_record():
+                # حفظ المستند الناتج بضغط عالي
+                output_pdf = io.BytesIO()
+                new_doc.save(output_pdf, deflate=True, garbage=4)
+                output_bytes = output_pdf.getvalue()
+                
+                new_doc.close()
+                doc.close()
+                gc.collect()
+
+                # دوال حفظ الحسابات والانتقال
+                def mark_current_as_processed():
                     st.session_state.report_data.append({
                         "اسم الملف": current_file.name,
-                        "عدد الصفحات بعد الحذف": kept_pages,
+                        "عدد الصفحات بعد الحذف": kept_pages_count,
                         "عدد الصفحات المحذوفة": len(pages_to_delete),
                         "عدد الصفحات الأصلي": total_pages
                     })
-                    st.session_state.current_file_idx += 1
-                    gc.collect() # تفريغ الذاكرة فور الانتقال للملف التالي
+                    st.session_state.processed_file_names.add(current_file.name)
+                    gc.collect()
 
                 def skip_current_file():
-                    st.session_state.current_file_idx += 1
+                    st.session_state.processed_file_names.add(current_file.name)
                     gc.collect()
 
                 col1, col2 = st.columns(2)
                 with col1:
                     st.download_button(
-                        label="📥 تحميل الملف والتالي ➡️",
+                        label="📥 تحميل الملف المضغوط والتالي ➡️",
                         data=output_bytes,
                         file_name=current_file.name,
                         mime="application/pdf",
-                        on_click=next_file_and_record
+                        on_click=mark_current_as_processed
                     )
                 with col2:
                     if st.button("⏭️ تخطي هذا الملف", on_click=skip_current_file):
@@ -152,7 +163,7 @@ if uploaded_files:
             gc.collect()
 
 else:
-    st.session_state.current_file_idx = 0
+    st.session_state.processed_file_names = set()
     st.session_state.report_data = []
     gc.collect()
     st.write("👈 قم برفع الملفات للبدء.")
